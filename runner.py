@@ -5,18 +5,14 @@ Generate appropriate emotional responses to faces from a video feed.
 """
 
 import sys
+
 import pyrealsense2 as rs
 import numpy as np
 import cv2
 
 import argvParser
+import feature_point_detector
 import emoRec
-import pickle
-from keras.models import model_from_json
-import skimage
-from skimage import transform
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import MinMaxScaler
 from emotion_synthesis import emotionSynthesis
 
 
@@ -49,8 +45,7 @@ def setup_CV():
     depth_scale = depth_sensor.get_depth_scale()
     clipping_distance = clipping_distance_in_meters / depth_scale
 
-    return (background, face_cascade, pipeline,
-            frame_aligner, clipping_distance)
+    return (face_cascade, pipeline, frame_aligner)
 
 
 def get_frames(pipeline, frame_aligner):
@@ -82,78 +77,41 @@ def get_gray_image(image):
 
     return gray_image_uint
 
-with open("update_y.txt", "rb") as fp:
-    transformations = pickle.load(fp)
-
-# load the transformations made to the training data
-output_pipe = make_pipeline(MinMaxScaler(feature_range=(-1, 1)))
-y_train = output_pipe.fit_transform(transformations)
-
-
-def detect_feature_points(image_frame, x, y, w, h, region_of_interest):
-    # Load model and weights and create model for prediction
-    json_file = open('updated_model.json', 'r')
-    # json_file = open('new_model_two.json', 'r')
-    loaded_model_json = json_file.read()
-    json_file.close()
-    loaded_model = model_from_json(loaded_model_json)
-    loaded_model.load_weights('updated_model_weights.h5')
-
-    predictions = []
-    roi = image_frame[y:y + h, x:x + w]
-    roi_scaled = skimage.transform.resize(roi, (96, 96))
-    key_points = loaded_model.predict(roi_scaled[np.newaxis, :, :, np.newaxis])
-    # inverse transform the transformations made for training the cnn
-    key_point_predictions = output_pipe.inverse_transform(key_points).reshape(22, 2)
-    # scale up ratio to scale the points from the 100 x 100 size to the size of the target image
-    scale_up_ratio_x = region_of_interest.shape[1] / 96.0
-    scale_up_ratio_y = region_of_interest.shape[0] / 96.0
-
-    # scale all the average points to fit the scale of the image we want to detect the key points in
-    for point in key_point_predictions.tolist():
-        new_scaled_x = scale_up_ratio_x * point[0]
-        new_scaled_y = scale_up_ratio_y * point[1]
-        predictions.append([new_scaled_x, new_scaled_y])
-
-    return predictions
-
 
 def emo_response(clf, landmarks):
-    # Integration here
-    # landmarks = None#CV function to extract landmarks here.
     emotion_probabilities = emoRec.predictEmo(clf, landmarks)
     emotionSynthesis(emotion_probabilities)
 
 
-def create_depth_mask(depth_frame, faces, image, clipping_distance, mask, clf):
+def detect_and_respond(depth_frame, faces, image, clf):
     depth_image = np.asanyarray(depth_frame.get_data())
 
     for (x, y, w, h) in faces:
         # draw a rectangle where a face is detected
-        cv2.rectangle(image, (x, y), (x+w, y+h), (255, 0, 0), 2)
+        cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-        # create the depth mask
-        average_depth = np.mean(depth_image[y : y+h, x : x+w])
-        high = min(average_depth + clipping_distance, 2**16)
-        low = max(average_depth - clipping_distance, 0)
-        mask[np.logical_and(low <= depth_image, depth_image <= high)] = 0.0
-        mask = -1*mask + 1.0  # flip the mask
+        region_of_interest = image[y : y + h, x : x + w]
+        scaled_key_points = feature_point_detector.detect(
+            gray_image_uint, x, y, w, h,
+            region_of_interest, output_pipe)
+        final_points = []
 
+        # extract depth value from x, y coordinates
+        for scaled_key_points_to_draw in scaled_key_points:
+            x_coord = round(scaled_key_points_to_draw[0])
+            y_coord = round(scaled_key_points_to_draw[1])
+            final_points.append([x_coord, y_coord,
+                                 depth_image[y_coord, x_coord]])
 
+        # draw the actual key points
+        for points in final_points:
+            the_x_coord = round(points[0])
+            the_y_coord = round(points[1])
+            cv2.circle(region_of_interest, (the_x_coord, the_y_coord),
+                       1, (0, 255, 255), 2)
 
-
-        emo_response(clf)
-
-    return mask
-
-
-def detect_faces(image, face_cascade, gray_image_uint,
-                 depth_frame, clipping_distance, clf):
-    # the face detection
-    mask = np.ones((image.shape[0], image.shape[1]))
-    faces = face_cascade.detectMultiScale(gray_image_uint, 1.3, 5)
-
-    return faces
+        # generate an appropriate emotional response
+        emo_response(clf, final_points)
 
 
 def main(argv):
@@ -175,9 +133,8 @@ def main(argv):
 
     clf = emoRec.loadClf(clf_file_name)
 
-    background, face_cascade, pipeline, frame_aligner, clipping_distance = (
-        setup_CV()
-    )
+    face_cascade, pipeline, frame_aligner = setup_CV()
+    output_pipe = feature_point_detector.setup_output_pipe()
 
     try:
         while True:
@@ -188,30 +145,10 @@ def main(argv):
 
             image = get_image(color_frame)
             gray_image_uint = get_gray_image(image)
-            face = detect_faces(image, face_cascade, gray_image_uint,
-                                depth_frame, clipping_distance, clf)
+            faces = face_cascade.detectMultiScale(gray_image_uint, 1.3, 5)
 
-            if len(face) > 0:
-                depth_image = np.asanyarray(depth_frame.get_data())
-                for (x, y, w, h) in face:
-                    cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)
-                    r_o_i = image[y:y + h, x:x + w]
-
-                    scaled_key_points = detect_feature_points(gray_image_uint, x, y, w, h, r_o_i)
-                    # extract depth value from x, y coordinates
-                    final_points = []
-                    for scaled_key_points_to_draw in scaled_key_points:
-                        x_coord = round(scaled_key_points_to_draw[0])
-                        y_coord = round(scaled_key_points_to_draw[1])
-                        final_points.append([x_coord, y_coord, depth_image[y_coord, x_coord]])
-                    # draw the actual key points
-                    for points in final_points:
-                        the_x_coord = round(points[0])
-                        the_y_coord = round(points[1])
-                        cv2.circle(r_o_i, (the_x_coord, the_y_coord), 1, (0, 255, 255), 2)
-
-                    # pass the points to ml group
-                    emo_response(clf, final_points)
+            if len(faces) > 0:
+                detect_and_respond(depth_frame, faces, image, clf)
 
             # Show images
             cv2.imshow('RealSense', image)
