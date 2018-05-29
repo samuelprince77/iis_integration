@@ -118,7 +118,7 @@ def main(argv):
     """
     Generate appropriate emotional responses to faces from a video feed.
     """
-    clf_file_name = "clf.dump"
+    clf_file_name = "clf-dumps/clf.dump"
 
     var_dict = {
         "clf": clf_file_name,
