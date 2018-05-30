@@ -5,6 +5,7 @@ A module for detecting feature points.
 """
 
 import pickle
+import numpy as np
 from keras.models import model_from_json
 from skimage import transform
 from sklearn.pipeline import make_pipeline
@@ -32,12 +33,12 @@ def detect(image_frame, x, y, w, h, region_of_interest, output_pipe):
     loaded_model.load_weights('updated_model_weights.h5')
 
     predictions = []
-    roi = image_frame[y : y + h, x : x + w]
+    roi = image_frame[y: y + h, x: x + w]
     roi_scaled = transform.resize(roi, (96, 96))
     key_points = loaded_model.predict(roi_scaled[np.newaxis, :, :, np.newaxis])
     # inverse transform the transformations made for training the cnn
     key_point_predictions = output_pipe.inverse_transform(key_points).reshape(22, 2)
-    # scale up ratio to scale the points from the 100 x 100 size to the size of the target image
+    # scale up ratio to scale the points from the 96 x 96 size to the size of the target image
     scale_up_ratio_x = region_of_interest.shape[1] / 96.0
     scale_up_ratio_y = region_of_interest.shape[0] / 96.0
 

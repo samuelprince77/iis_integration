@@ -51,7 +51,7 @@ def setup_CV():
 def get_frames(pipeline, frame_aligner):
     # Wait for a new frame and align the frame
     frames = pipeline.wait_for_frames()
-    aligned_frames = frame_aligner.proccess(frames)
+    aligned_frames = frame_aligner.process(frames)
     depth_frame = aligned_frames.get_depth_frame()
     color_frame = aligned_frames.get_color_frame()
 
@@ -82,15 +82,16 @@ def emo_response(clf, landmarks):
     emotion_probabilities = emoRec.predictEmo(clf, landmarks)
     emotionSynthesis(emotion_probabilities)
 
+output_pipe = feature_point_detector.setup_output_pipe()
 
-def detect_and_respond(depth_frame, faces, image, clf):
+def detect_and_respond(depth_frame, faces, image, gray_image_uint, clf):
     depth_image = np.asanyarray(depth_frame.get_data())
 
     for (x, y, w, h) in faces:
         # draw a rectangle where a face is detected
         cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-        region_of_interest = image[y : y + h, x : x + w]
+        region_of_interest = image[y: y + h, x: x + w]
         scaled_key_points = feature_point_detector.detect(
             gray_image_uint, x, y, w, h,
             region_of_interest, output_pipe)
@@ -134,7 +135,7 @@ def main(argv):
     clf = emoRec.loadClf(clf_file_name)
 
     face_cascade, pipeline, frame_aligner = setup_CV()
-    output_pipe = feature_point_detector.setup_output_pipe()
+
 
     try:
         while True:
@@ -148,7 +149,7 @@ def main(argv):
             faces = face_cascade.detectMultiScale(gray_image_uint, 1.3, 5)
 
             if len(faces) > 0:
-                detect_and_respond(depth_frame, faces, image, clf)
+                detect_and_respond(depth_frame, faces, image, gray_image_uint, clf)
 
             # Show images
             cv2.imshow('RealSense', image)
