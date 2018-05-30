@@ -33,7 +33,7 @@ def detect(image_frame, x, y, w, h, region_of_interest, output_pipe):
     loaded_model.load_weights('updated_model_weights.h5')
 
     predictions = []
-    roi = image_frame[y: y + h, x: x + w]
+    roi = image_frame[y : y + h, x : x + w]
     roi_scaled = transform.resize(roi, (96, 96))
     key_points = loaded_model.predict(roi_scaled[np.newaxis, :, :, np.newaxis])
     # inverse transform the transformations made for training the cnn

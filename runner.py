@@ -91,7 +91,7 @@ def detect_and_respond(depth_frame, faces, image, gray_image_uint, clf):
         # draw a rectangle where a face is detected
         cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-        region_of_interest = image[y: y + h, x: x + w]
+        region_of_interest = image[y : y + h, x : x + w]
         scaled_key_points = feature_point_detector.detect(
             gray_image_uint, x, y, w, h,
             region_of_interest, output_pipe)
