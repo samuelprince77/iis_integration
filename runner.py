@@ -5,6 +5,7 @@ Generate appropriate emotional responses to faces from a video feed.
 """
 
 import sys
+import _thread
 
 import pyrealsense2 as rs
 import numpy as np
@@ -78,13 +79,20 @@ def get_gray_image(image):
     return gray_image_uint
 
 
-def emo_response(clf, landmarks):
+def display_response(emo_prob):
+    while True:
+        if sum(emo_prob) > 0.1:
+            emotionSynthesis(emo_prob)
+
+
+def emo_response(emo_prob, clf, landmarks):
     emotion_probabilities = emoRec.predictEmo(clf, landmarks)
-    emotionSynthesis(emotion_probabilities)
+    emo_prob[:] = emotion_probabilities[:]
 
 output_pipe = feature_point_detector.setup_output_pipe()
 
-def detect_and_respond(depth_frame, faces, image, gray_image_uint, clf):
+def detect_and_respond(depth_frame, faces, image, gray_image_uint,
+                       emo_prob, clf):
     depth_image = np.asanyarray(depth_frame.get_data())
 
     for (x, y, w, h) in faces:
@@ -112,7 +120,7 @@ def detect_and_respond(depth_frame, faces, image, gray_image_uint, clf):
                        1, (0, 255, 255), 2)
 
         # generate an appropriate emotional response
-        emo_response(clf, final_points)
+        emo_response(emo_prob, clf, final_points)
 
 
 def main(argv):
@@ -135,6 +143,8 @@ def main(argv):
     clf = emoRec.loadClf(clf_file_name)
 
     face_cascade, pipeline, frame_aligner = setup_CV()
+    emo_prob = np.zeros((6,))
+    _thread.start_new_thread(display_response, (emo_prob,))
 
 
     try:
@@ -149,7 +159,8 @@ def main(argv):
             faces = face_cascade.detectMultiScale(gray_image_uint, 1.3, 5)
 
             if len(faces) > 0:
-                detect_and_respond(depth_frame, faces, image, gray_image_uint, clf)
+                detect_and_respond(depth_frame, faces, image, gray_image_uint,
+                                   emo_prob, clf)
 
             # Show images
             cv2.imshow('RealSense', image)
